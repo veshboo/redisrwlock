@@ -25,3 +25,5 @@ with Redis server. Tune with retry_interval for your task.
 ## TODOs
 
 * High availability
+* FIXME: Oops, need to receive redis server connection for multi-node operation.
+I have tested on a local laptop so far.
