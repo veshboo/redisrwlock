@@ -260,6 +260,4 @@ if __name__ == '__main__':
         logging.debug('redisrwlock gc')
         time.sleep(5)
 
-
-# TODO: deadlock detection
 # TODO: high availability! research if redis-sentinel can help
