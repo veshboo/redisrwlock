@@ -8,6 +8,8 @@ import time
 
 logging.config.fileConfig('logging.conf')
 
+# Primary data structure for lock, owner, grant
+#
 # SET:    rsrc name -> set of lock grants
 # STRING: lock name -> ref count
 # rsrc    ::= rsrc:{name of resource}
@@ -15,24 +17,35 @@ logging.config.fileConfig('logging.conf')
 # lock    ::= lock:{name of resource}:{mode}:{owner}
 # owner   ::= {node}/{pid}
 
+# Addtional data structure for deadlock detect wait-for graph
+# SET:    waitor -> set of waitee
+# waitor  ::= wait:{owner}
+# waitee  ::= {owner}
+
 _LOCK_SCRIPT = """\
 local rsrc = KEYS[1]
 local lock = KEYS[2]
 local mode = string.match(lock, 'lock:.+:([RW]):.+')
 local owner = string.match(lock, 'lock:.+:[RW]:(.+)')
 local grants = redis.call('smembers', rsrc)
+local any_wait = false
 for i, grant in ipairs(grants) do
     local grant_mode = string.match(grant, '([RW]):.+')
     local grant_owner = string.match(grant, '[RW]:(.+)')
     if grant_owner ~= owner then
         if not (grant_mode == 'R' and mode == 'R') then
-            return 'false' -- TODO deadlock detection in lua or python?
+            any_wait = true
+            redis.call('sadd', 'wait:'..owner, grant_owner)
         end
     end
 end
-redis.call('sadd', rsrc, mode..':'..owner)
-redis.call('incr', lock)
-return 'true'
+if any_wait then
+    return 'false'
+else
+    redis.call('sadd', rsrc, mode..':'..owner)
+    redis.call('incr', lock)
+    return 'true'
+end
 """
 
 _UNLOCK_SCRIPT = """
@@ -180,7 +193,7 @@ class RwlockClient:
             logging.info('gc: ' + str(count) + ' lock(s)')
 
     # For test aid, not public
-    def clear_all(self):
+    def _clear_all(self):
         self.redis.eval(_CLEAR_ALL_SCRIPT, 0)
 
 

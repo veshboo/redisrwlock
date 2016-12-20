@@ -8,45 +8,36 @@ import time
 class TestRedisRwlock(unittest.TestCase):
 
     def setUp(self):
-        RwlockClient().clear_all()
+        RwlockClient()._clear_all()
 
     def tearDown(self):
-        RwlockClient().clear_all()
+        RwlockClient()._clear_all()
 
     def test_lock(self):
         """
         test simple lock
         """
         client = RwlockClient()
-        # read lock
-        rwlock1 = client.lock('N1', Rwlock.READ)
-        self.assertEqual(rwlock1.valid, True)
-        self.assertEqual(rwlock1.name, 'N1')
-        self.assertEqual(rwlock1.mode, Rwlock.READ)
-        self.assertEqual(rwlock1.pid, str(os.getpid()))
-        client.unlock(rwlock1)
-        # write lock
-        rwlock2 = client.lock('N2', Rwlock.WRITE)
-        self.assertEqual(rwlock2.valid, True)
-        self.assertEqual(rwlock2.name, 'N2')
-        self.assertEqual(rwlock2.mode, Rwlock.WRITE)
-        self.assertEqual(rwlock2.pid, str(os.getpid()))
-        client.unlock(rwlock2)
+        rwlock = client.lock('N1', Rwlock.READ)
+        self.assertEqual(rwlock.valid, True)
+        self.assertEqual(rwlock.name, 'N1')
+        self.assertEqual(rwlock.mode, Rwlock.READ)
+        self.assertEqual(rwlock.pid, str(os.getpid()))
+        client.unlock(rwlock)
 
     def test_unlock(self):
         """
         test normal unlock after lock
         """
         client = RwlockClient()
-        rwlock1 = client.lock('N1', Rwlock.READ)
-        self.assertEqual(client.unlock(rwlock1), True)
+        rwlock = client.lock('N1', Rwlock.READ)
+        self.assertEqual(client.unlock(rwlock), True)
 
     def test_unlock_excessive(self):
         """
         test call unlock more than lock
         """
         client = RwlockClient()
-        # read lock
         rwlock = client.lock('N1', Rwlock.READ)
         client.unlock(rwlock)
         self.assertEqual(client.unlock(rwlock), False)
@@ -86,7 +77,7 @@ class TestRedisRwlock(unittest.TestCase):
         client1.unlock(rwlock1)
 
     def test_lock_fail_timeout(self):
-        """test lock timeout non-zero"""
+        """test lock fail with timeout"""
         # Simulate other process
         client1 = RwlockClient(pid=str(os.getpid() - 1))
         client2 = RwlockClient()
@@ -127,3 +118,34 @@ client.lock('N-GC1', Rwlock.READ)
         rwlock2 = client2.lock('N-GC1', Rwlock.WRITE, timeout=10)
         self.assertEqual(rwlock2.valid, True)
         client2.unlock(rwlock2)
+
+class TestRedisRwlock_deadlock(unittest.TestCase):
+
+    def setup(self):
+        RwlockClient()._clear_all()
+
+    def tearDown(self):
+        RwlockClient()._clear_all()
+
+    def test_deadlock(self):
+        """test deadlock detection"""
+        # Client1: N-DL1 ----------------- sleep(1) --- N-DL2
+        # Client2:        N-DL2 --- N-DL1
+        client1 = RwlockClient()
+        client1.lock('N-DL1', Rwlock.WRITE)
+        client2_command = '''\
+from redisrwlock import Rwlock, RwlockClient
+client = RwlockClient()
+client.lock('N-DL2', Rwlock.WRITE)
+client.lock('N-DL1', Rwlock.WRITE)
+# TEST should return after deadlock detected in client1
+'''
+        client2 = subprocess.Popen(['python3', '-c', client2_command])
+        time.sleep(1)
+        # This should result in deadlock before timeout
+        t1 = time.monotonic()
+        rwlock1_2 = client1.lock('N-DL2', Rwlock.READ, timeout=1)
+        t2 = time.monotonic()
+        self.assertEqual(rwlock1_2.valid, False)
+        # print("DEBUG t2 - t1 =" + str(t2 - t1))
+        self.assertTrue(t2 - t1 < 1)
