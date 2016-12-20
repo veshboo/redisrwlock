@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import redis
 
 import logging
@@ -8,7 +10,7 @@ import time
 
 logging.config.fileConfig('logging.conf')
 
-# Primary data structure for lock, owner, grant
+# (1) Primary data structure for lock, owner, grant
 #
 # SET:    rsrc name -> set of lock grants
 # STRING: lock name -> ref count
@@ -16,8 +18,9 @@ logging.config.fileConfig('logging.conf')
 # grant   ::= {mode}:{owner}
 # lock    ::= lock:{name of resource}:{mode}:{owner}
 # owner   ::= {node}/{pid}
-
-# Addtional data structure for deadlock detect wait-for graph
+#
+# (2) Addtional data structure for deadlock detect wait-for graph
+#
 # SET:    waitor -> set of waitee
 # waitor  ::= wait:{owner}
 # waitee  ::= {owner}
@@ -97,16 +100,36 @@ end
 
 # lock result used as token
 class Rwlock:
+    """
+    Constants for Rwlock
+
+    lock modes: READ, WRITE
+
+    special timeout: FOREVER
+
+    status: OK, FAIL, TIMEOUT, DEADLOCK,
+    and None if not returned from lock method
+    """
+
+    # lock modes
     READ = 'R'
     WRITE = 'W'
+
+    # timeout
     FOREVER = -1
+
+    # status
+    OK = 0
+    FAIL = 1
+    TIMEOUT = 2
+    DEADLOCK = 3
 
     def __init__(self, name, mode, node, pid):
         self.name = name
         self.mode = mode
         self.node = node
         self.pid = pid
-        self.valid = False
+        self.status = None
 
     def get_rsrc(self):
         return 'rsrc:' + self.name
@@ -126,29 +149,39 @@ class RwlockClient:
         self.pid = pid
         self.redis.client_setname('redisrwlock:' + self.node + '/' + self.pid)
 
+    def get_owner(self):
+        return self.node + '/' + self.pid
+
     def lock(self, name, mode, timeout=0, retry_interval=0.1):
         """Locks on a named resource with mode in timeout.
 
         Specify timeout 0 (default) for no-wait, no-retry and
         timeout FOREVER waits until lock success or deadlock.
-        -- Although deadlock detection is not implemented yet
 
         When requested lock is not available, this method sleep
-        given retry_interval seconds and retry until lock success or timeout
+        given retry_interval seconds and retry until lock success,
+        deadlock or timeout.
 
-        returns rwlock, check valid field to know lock obtained or failed
+        returns rwlock, check status field to know lock obtained or failed
         """
         t1 = t2 = time.monotonic()
         rwlock = Rwlock(name, mode, self.node, self.pid)
         while timeout == Rwlock.FOREVER or t2 - t1 <= timeout:
             retval = self.redis.eval(
                 _LOCK_SCRIPT, 2, rwlock.get_rsrc(), rwlock.get_lock())
-            rwlock.valid = retval == b'true'
-            if rwlock.valid:
+            lock_ok = True if retval == b'true' else False
+            if lock_ok:
+                rwlock.status = Rwlock.OK
+                return rwlock
+            elif timeout == 0:
+                rwlock.status = Rwlock.FAIL
+                return rwlock
+            elif self.deadlock(self.get_owner(), set(), list()):
+                rwlock.status = Rwlock.DEADLOCK
                 return rwlock
             time.sleep(retry_interval)
             t2 = time.monotonic()
-        assert not rwlock.valid
+        rwlock.status = Rwlock.TIMEOUT
         return rwlock
 
     def unlock(self, rwlock):
@@ -194,7 +227,24 @@ class RwlockClient:
                 count += 1
                 logging.debug('gc: ' + lock.decode())
         if count > 0:
-            logging.info('gc: ' + str(count) + ' lock(s)')
+            logging.debug('gc: ' + str(count) + ' lock(s)')
+
+    # Deadlock detect - cycle detect in wait-for graph (DAG)
+    # DFS checking rediscovering of vertex in path
+    def deadlock(self, current, visited, path):
+        if current in path:
+            logging.debug("deadlock: cyclic wait-for: [%s]", ' -> '.join(path))
+            return True
+        adj_set = self.redis.smembers('wait:' + current)
+        for adj in adj_set:
+            adj = adj.decode()
+            if adj not in visited:
+                path.append(current)
+                if self.deadlock(adj, visited, path):
+                    return True
+                path.pop()
+        visited.add(current)
+        return False
 
     # For test aid, not public
     def _clear_all(self):

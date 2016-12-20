@@ -19,7 +19,7 @@ class TestRedisRwlock(unittest.TestCase):
         """
         client = RwlockClient()
         rwlock = client.lock('N1', Rwlock.READ)
-        self.assertEqual(rwlock.valid, True)
+        self.assertEqual(rwlock.status, Rwlock.OK)
         self.assertEqual(rwlock.name, 'N1')
         self.assertEqual(rwlock.mode, Rwlock.READ)
         self.assertEqual(rwlock.pid, str(os.getpid()))
@@ -50,7 +50,7 @@ class TestRedisRwlock(unittest.TestCase):
         # R then R
         rwlock1 = client.lock('N1', Rwlock.READ)
         rwlock2 = client.lock('N1', Rwlock.READ)
-        self.assertEqual(rwlock2.valid, True)
+        self.assertEqual(rwlock2.status, Rwlock.OK)
         self.assertEqual(rwlock2.name, 'N1')
         self.assertEqual(rwlock2.mode, Rwlock.READ)
         self.assertEqual(rwlock2.pid, rwlock1.pid)
@@ -59,7 +59,7 @@ class TestRedisRwlock(unittest.TestCase):
         # R then W
         rwlock1 = client.lock('N2', Rwlock.READ)
         rwlock2 = client.lock('N2', Rwlock.WRITE)
-        self.assertEqual(rwlock2.valid, True)
+        self.assertEqual(rwlock2.status, Rwlock.OK)
         self.assertEqual(rwlock2.name, 'N2')
         self.assertEqual(rwlock2.mode, Rwlock.WRITE)
         self.assertEqual(rwlock2.pid, rwlock1.pid)
@@ -73,7 +73,7 @@ class TestRedisRwlock(unittest.TestCase):
         client2 = RwlockClient()
         rwlock1 = client1.lock('N1', Rwlock.READ)
         rwlock2 = client2.lock('N1', Rwlock.WRITE)
-        self.assertEqual(rwlock2.valid, False)
+        self.assertEqual(rwlock2.status, Rwlock.FAIL)
         client1.unlock(rwlock1)
 
     def test_lock_fail_timeout(self):
@@ -86,7 +86,7 @@ class TestRedisRwlock(unittest.TestCase):
         rwlock2 = client2.lock('N1', Rwlock.WRITE, timeout=0.2)
         t2 = time.monotonic()
         self.assertTrue(t2 - t1 > 0.2)
-        self.assertEqual(rwlock2.valid, False)
+        self.assertEqual(rwlock2.status, Rwlock.TIMEOUT)
         client1.unlock(rwlock1)
 
 
@@ -118,7 +118,7 @@ client.lock('N-GC1', Rwlock.READ)
         # need to specify timeout greater than gc interval (5 sec)
         client2 = RwlockClient()
         rwlock2 = client2.lock('N-GC1', Rwlock.WRITE, timeout=10)
-        self.assertEqual(rwlock2.valid, True)
+        self.assertEqual(rwlock2.status, Rwlock.OK)
         client2.unlock(rwlock2)
 
 class TestRedisRwlock_deadlock(unittest.TestCase):
@@ -148,6 +148,6 @@ client.lock('N-DL1', Rwlock.WRITE)
         t1 = time.monotonic()
         rwlock1_2 = client1.lock('N-DL2', Rwlock.READ, timeout=1)
         t2 = time.monotonic()
-        self.assertEqual(rwlock1_2.valid, False)
+        self.assertEqual(rwlock1_2.status, Rwlock.DEADLOCK)
         # print("DEBUG t2 - t1 =" + str(t2 - t1))
         self.assertTrue(t2 - t1 < 1)
