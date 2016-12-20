@@ -82,11 +82,15 @@ end
 _CLEAR_ALL_SCRIPT = """
 local locks = redis.call('keys', 'lock:*:[RW]:*')
 for i, lock in ipairs(locks) do
-    redis.call("del", lock)
+    redis.call('del', lock)
 end
 local rsrcs = redis.call('keys', 'rsrc:*')
 for i, rsrc in ipairs(rsrcs) do
-    redis.call("del", rsrc)
+    redis.call('del', rsrc)
+end
+local waits = redis.call('keys', 'wait:*')
+for i, wait in ipairs(waits) do
+    redis.call('del', wait)
 end
 """
 

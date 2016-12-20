@@ -93,10 +93,12 @@ class TestRedisRwlock(unittest.TestCase):
 class TestRedisRwlock_gc(unittest.TestCase):
 
     def setUp(self):
+        RwlockClient()._clear_all()
         self.gc = subprocess.Popen(['python3', 'redisrwlock.py'])
 
     def tearDown(self):
         self.gc.terminate()
+        RwlockClient()._clear_all()
 
     def test_gc(self):
         """
