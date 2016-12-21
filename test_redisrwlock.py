@@ -1,8 +1,20 @@
 from redisrwlock import Rwlock, RwlockClient
+from test_redisrwlock_connection import runRedisServer, terminateRedisServer
+
 import unittest
 import os
 import subprocess
 import time
+
+
+def setUpModule():
+    global _server, _dumper
+    _server, _dumper = runRedisServer()
+
+
+def tearDownModule():
+    global _server, _dumper
+    terminateRedisServer(_server, _dumper)
 
 
 class TestRedisRwlock(unittest.TestCase):
@@ -120,6 +132,7 @@ client.lock('N-GC1', Rwlock.READ)
         rwlock2 = client2.lock('N-GC1', Rwlock.WRITE, timeout=10)
         self.assertEqual(rwlock2.status, Rwlock.OK)
         client2.unlock(rwlock2)
+
 
 class TestRedisRwlock_deadlock(unittest.TestCase):
 

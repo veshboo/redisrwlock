@@ -143,10 +143,10 @@ class Rwlock:
 
 class RwlockClient:
 
-    # FIXME: Oops, need to receive redis server connection
-    #        for multi-node operation
-    def __init__(self, node='localhost', pid=str(os.getpid())):
-        self.redis = redis.StrictRedis()
+    def __init__(self,
+                 redis=redis.StrictRedis(),
+                 node='localhost', pid=str(os.getpid())):
+        self.redis = redis
         self.node = node
         self.pid = pid
         self.redis.client_setname('redisrwlock:' + self.node + '/' + self.pid)

@@ -1,3 +1,6 @@
 # Byte compiled
 __pycache__/
 *.py[cod]
+
+# Rdis snapshot
+dump.rdb

@@ -19,11 +19,10 @@ with Redis server. Tune with retry_interval for your task.
 
 ## usages
 
-* Please consult test_redisrwlock.py
-* Before running test, redis-server should be running first
+* Please consult test_redisrwlock.py and test_redisrwlock_connection.py
 
 ## TODOs
 
 * High availability
-* FIXME: Oops, need to receive redis server connection for multi-node operation.
-I have tested on a local laptop so far.
+* FIXME: After deadlock detect, remove wait graph record related.
+But other locks already owned are expected to be unlocked by user.
