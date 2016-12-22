@@ -25,6 +25,9 @@ logging.config.fileConfig('logging.conf')
 # waitor  ::= wait:{owner}
 # waitee  ::= {owner}
 
+# atomic:
+# - checking if any conflicting locks granted
+# - adding lock if no confliction
 _LOCK_SCRIPT = """\
 local rsrc = KEYS[1]
 local lock = KEYS[2]
@@ -45,7 +48,10 @@ redis.call('incr', lock)
 return 'true'
 """
 
-_UNLOCK_SCRIPT = """
+# atomic:
+# - decrease reference count
+# - delete lock if no reference
+_UNLOCK_SCRIPT = """\
 local rsrc = KEYS[1]
 local lock = KEYS[2]
 local mode = string.match(lock, 'lock:.+:([RW]):.+')
@@ -57,9 +63,6 @@ else
     if tonumber(retval) == 1 then
         redis.call('del', lock)
         redis.call('srem', rsrc, mode..':'..owner)
-        if redis.call('scard', rsrc) == 0 then
-            redis.call('del', rsrc)
-        end
     else
         redis.call('decr', lock)
     end
@@ -67,13 +70,11 @@ end
 return 'true'
 """
 
+# TODO: Do this in python part
 _REMOVE_GRANT_SCRIPT = """
 local rsrc = KEYS[1]
 local grant = ARGV[1]
 redis.call('srem', rsrc, grant)
-if redis.call('scard', rsrc) == 0 then
-    redis.call('del', rsrc)
-end
 """
 
 
