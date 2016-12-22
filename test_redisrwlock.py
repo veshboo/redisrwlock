@@ -1,5 +1,6 @@
 from redisrwlock import Rwlock, RwlockClient
-from test_redisrwlock_connection import runRedisServer, terminateRedisServer
+from test_redisrwlock_connection import (
+    runRedisServer, terminateRedisServer, cleanUpRedisKeys)
 
 import unittest
 import os
@@ -20,10 +21,10 @@ def tearDownModule():
 class TestRedisRwlock(unittest.TestCase):
 
     def setUp(self):
-        RwlockClient()._clear_all()
+        cleanUpRedisKeys()
 
     def tearDown(self):
-        RwlockClient()._clear_all()
+        cleanUpRedisKeys()
 
     def test_lock(self):
         """
@@ -105,12 +106,12 @@ class TestRedisRwlock(unittest.TestCase):
 class TestRedisRwlock_gc(unittest.TestCase):
 
     def setUp(self):
-        RwlockClient()._clear_all()
+        cleanUpRedisKeys()
         self.gc = subprocess.Popen(['python3', 'redisrwlock.py'])
 
     def tearDown(self):
         self.gc.terminate()
-        RwlockClient()._clear_all()
+        cleanUpRedisKeys()
 
     def test_gc(self):
         """
@@ -137,30 +138,38 @@ client.lock('N-GC1', Rwlock.READ)
 class TestRedisRwlock_deadlock(unittest.TestCase):
 
     def setup(self):
-        RwlockClient()._clear_all()
+        cleanUpRedisKeys()
 
     def tearDown(self):
-        RwlockClient()._clear_all()
+        cleanUpRedisKeys()
+        pass
 
     def test_deadlock(self):
         """test deadlock detection"""
         # Client1: N-DL1 ----------------- sleep(1) --- N-DL2
         # Client2:        N-DL2 --- N-DL1
         client1 = RwlockClient()
-        client1.lock('N-DL1', Rwlock.WRITE)
+        rwlock1_1 = client1.lock('N-DL1', Rwlock.WRITE, timeout=Rwlock.FOREVER)
         client2_command = '''\
 from redisrwlock import Rwlock, RwlockClient
+import sys
 client = RwlockClient()
-client.lock('N-DL2', Rwlock.WRITE)
-client.lock('N-DL1', Rwlock.WRITE)
-# TEST should return after deadlock detected in client1
+rwlock2_2 = client.lock('N-DL2', Rwlock.WRITE, timeout=Rwlock.FOREVER)
+rwlock2_1 = client.lock('N-DL1', Rwlock.WRITE, timeout=Rwlock.FOREVER)
+# Should return after deadlock detected in client1
+status = 0 if rwlock2_1.status == Rwlock.OK else 1
+client.unlock(rwlock2_1)
+client.unlock(rwlock2_2)
+sys.exit(status)
 '''
         client2 = subprocess.Popen(['python3', '-c', client2_command])
         time.sleep(1)
         # This should result in deadlock before timeout
         t1 = time.monotonic()
-        rwlock1_2 = client1.lock('N-DL2', Rwlock.READ, timeout=1)
+        rwlock1_2 = client1.lock('N-DL2', Rwlock.READ, timeout=2)
         t2 = time.monotonic()
         self.assertEqual(rwlock1_2.status, Rwlock.DEADLOCK)
+        client1.unlock(rwlock1_1)  # unblock client2 from lock
         # print("DEBUG t2 - t1 =" + str(t2 - t1))
-        self.assertTrue(t2 - t1 < 1)
+        self.assertTrue(t2 - t1 < 2)
+        self.assertEqual(client2.wait(1), 0)

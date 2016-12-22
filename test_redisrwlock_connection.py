@@ -4,7 +4,10 @@ import redis
 import subprocess
 
 
-# Test helper
+#
+# Test helpers
+#
+
 def runRedisServer(port=6379):
     """runs redis-server"""
     # waits until it can accept client connection by reading its all
@@ -26,6 +29,14 @@ def terminateRedisServer(server, dumper):
     server.stdout.close()
     server.terminate()
     dumper.terminate()
+
+
+_UNNEATY_AFTER_TEST = '!!! Some remaining rsrc, lock, wait after test !!!'
+
+
+def cleanUpRedisKeys():
+    if RwlockClient()._clear_all():
+        print(_UNNEATY_AFTER_TEST)
 
 
 class TestRedisRwlock_connection(unittest.TestCase):

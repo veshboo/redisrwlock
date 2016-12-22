@@ -23,6 +23,7 @@ with Redis server. Tune with retry_interval for your task.
 
 ## TODOs
 
-* High availability
-* FIXME: After deadlock detect, remove wait graph record related.
-But other locks already owned are expected to be unlocked by user.
+* TODO: High availability
+* FIXME: Introduce time when lock first granted to determine victim,
+  Current implementation just determine with process id.
+
