@@ -70,13 +70,6 @@ end
 return 'true'
 """
 
-# TODO: Do this in python part
-_REMOVE_GRANT_SCRIPT = """
-local rsrc = KEYS[1]
-local grant = ARGV[1]
-redis.call('srem', rsrc, grant)
-"""
-
 
 # lock result used as token
 class Rwlock:
@@ -179,7 +172,7 @@ class RwlockClient:
         return retval == b'true'
 
     # TODO: Avoid full scan of lock list
-    # by introducing owner:oname -> { set of resources names }
+    # by maintaining redisrwlock:owner -> { set of resources names }
     # with this additional info, I can;
     # (1) find out stale owners
     # (2) then unlock locks of each stale owner
@@ -207,9 +200,7 @@ class RwlockClient:
             name, mode, owner = m.group(1, 2, 3)
             if owner not in active_set:
                 self.redis.delete(lock)
-                # 'SREM' and 'DEL' should be done in atomic
-                self.redis.eval(
-                    _REMOVE_GRANT_SCRIPT, 1, 'rsrc:'+name, mode+':'+owner)
+                self.redis.srem('rsrc:' + name, mode + ':' + owner)
                 count += 1
                 logging.debug('gc: ' + lock.decode())
         if count > 0:
@@ -219,14 +210,12 @@ class RwlockClient:
         for wait in wait_list:
             waitor = re.match(r'wait:(.+)', wait.decode()).group(1)
             if waitor not in active_set:
-                # XXX 'SREM' from other waitors with this waitor as member
-                # This seems not required, because active waitors rebuild
-                # their wait sets when they retry locking.
-                # --
-                # self.redis.eval(_REMOVE_WAITEE_SCRIPT, 0, waitor)
                 self.redis.delete(wait)
                 count += 1
                 logging.debug('gc: ' + wait.decode())
+                # XXX 'SREM' from other waitors having this waitor as member
+                # This seems not required, because active waitors rebuild
+                # their wait sets when they retry locking.
         if count > 0:
             logging.debug('gc: ' + str(count) + ' wait(s)')
 
