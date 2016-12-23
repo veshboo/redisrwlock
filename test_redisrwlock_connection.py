@@ -8,15 +8,20 @@ import subprocess
 # Test helpers
 #
 
+
+_REDIS_READY_MESSAGE = 'ready to accept connections on port '
+
+
 def runRedisServer(port=6379):
     """runs redis-server"""
     # waits until it can accept client connection by reading its all
-    # startup messages, then redirect any future output to DEVNULL.
+    # startup messages until it says 'ready to accept ...', then
+    # redirect any following output to DEVNULL.
     port = str(port)
     server = subprocess.Popen(['redis-server', '--port', port],
                               stdout=subprocess.PIPE,
                               universal_newlines=True)
-    message = 'ready to accept connections on port ' + port
+    message = _REDIS_READY_MESSAGE + port
     while message not in server.stdout.readline():
         pass
     dumper = subprocess.Popen(['cat'],
@@ -31,7 +36,7 @@ def terminateRedisServer(server, dumper):
     dumper.terminate()
 
 
-_UNNEATY_AFTER_TEST = '!!! Some remaining rsrc, lock, wait after test !!!'
+_UNNEATY_AFTER_TEST = '!!! SOME REDISRWLOCK KEYS REMAIN AFTER TEST !!!'
 
 
 def cleanUpRedisKeys():

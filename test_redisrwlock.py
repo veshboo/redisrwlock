@@ -107,10 +107,8 @@ class TestRedisRwlock_gc(unittest.TestCase):
 
     def setUp(self):
         cleanUpRedisKeys()
-        self.gc = subprocess.Popen(['python3', 'redisrwlock.py'])
 
     def tearDown(self):
-        self.gc.terminate()
         cleanUpRedisKeys()
 
     def test_gc(self):
@@ -127,10 +125,12 @@ client.lock('N-GC1', Rwlock.READ)
         client1.wait()
         # print("DEBUG client1 return: " + str(client1.returncode))
         # --
-        # Now, client2 try lock fail without gc, pass with gc
-        # need to specify timeout greater than gc interval (5 sec)
+        # Now, test client2 try lock after gc,
+        # should fail without gc, pass with gc.
+        gc = subprocess.Popen(['python3', 'redisrwlock.py'])  # No repeat
+        gc.wait()
         client2 = RwlockClient()
-        rwlock2 = client2.lock('N-GC1', Rwlock.WRITE, timeout=10)
+        rwlock2 = client2.lock('N-GC1', Rwlock.WRITE)
         self.assertEqual(rwlock2.status, Rwlock.OK)
         client2.unlock(rwlock2)
 

@@ -2,38 +2,52 @@ from __future__ import print_function
 
 import redis
 
+import getopt
 import logging
 import logging.config
 import os
 import re
+import sys
 import time
 
 logging.config.fileConfig('logging.conf')
 
-# (1) Primary data structure for lock, owner, grant
+# (1) Primary data structure for resource, owner, lock
 #
-# SET:    rsrc name -> set of lock grants
-# STRING: lock name -> ref count
-# rsrc    ::= rsrc:{name of resource}
-# grant   ::= {mode}:{owner}
-# lock    ::= lock:{name of resource}:{mode}:{owner}
-# owner   ::= {node}/{pid}
+# name  = resource name
+# mode  = R|W
+# owner = node/pid
+# time  = sec.usec (from redis time command)
+#
+# SET:    rsrc -> set of lock grants
+# STR:    lock -> ref-count:time      (time added for victim selection)
+# SET:   owner -> set of rsrc access  (this set is for victim selection)
+#
+# rsrc_key   = rsrc:{name}
+# lock_key   = lock:{name}:{mode}:{owner}
+# owner_key  = owner:{owner}
+#
+# grant      = {mode}:{owner}
+# access     = {mode}:{name}
 #
 # (2) Addtional data structure for deadlock detect wait-for graph
 #
-# SET:    waitor -> set of waitee
-# waitor  ::= wait:{owner}
-# waitee  ::= {owner}
+# SET:  waitor -> set of waitee
+#
+# waitor_key = wait:{owner}
+# waitee     = {owner}
 
 # atomic:
 # - checking if any conflicting locks granted
 # - adding lock if no confliction
 _LOCK_SCRIPT = """\
-local rsrc = KEYS[1]
-local lock = KEYS[2]
-local mode = string.match(lock, 'lock:.+:([RW]):.+')
-local owner = string.match(lock, 'lock:.+:[RW]:(.+)')
-local grants = redis.call('smembers', rsrc)
+local rsrc_key = KEYS[1]
+local lock_key = KEYS[2]
+local owner_key = KEYS[3]
+local name = string.match(lock_key, 'lock:(.+):[RW]:.+')
+local mode = string.match(lock_key, 'lock:.+:([RW]):.+')
+local owner = string.match(lock_key, 'lock:.+:[RW]:(.+)')
+local grants = redis.call('smembers', rsrc_key)
 for i, grant in ipairs(grants) do
     local grant_mode = string.match(grant, '([RW]):.+')
     local grant_owner = string.match(grant, '[RW]:(.+)')
@@ -43,8 +57,18 @@ for i, grant in ipairs(grants) do
         end
     end
 end
-redis.call('sadd', rsrc, mode..':'..owner)
-redis.call('incr', lock)
+-- add as grant and acccess, set lock k=v
+redis.call('sadd', rsrc_key, mode..':'..owner)
+redis.call('sadd', owner_key, mode..':'..name)
+local rcnt = '1'
+local time = ARGV[1]
+local retval = redis.call('get', lock_key)
+if retval ~= false then
+    rcnt = tonumber(string.match(retval, '(.+):.+')) + 1
+    time = string.match(retval, '.+:(.+)')
+    redis.call('set', lock_key, '1:'..time)
+end
+redis.call('set', lock_key, rcnt..':'..time)
 return 'true'
 """
 
@@ -52,23 +76,49 @@ return 'true'
 # - decrease reference count
 # - delete lock if no reference
 _UNLOCK_SCRIPT = """\
-local rsrc = KEYS[1]
-local lock = KEYS[2]
-local mode = string.match(lock, 'lock:.+:([RW]):.+')
-local owner = string.match(lock, 'lock:.+:[RW]:(.+)')
-local retval = redis.call('get', lock)
+local rsrc_key = KEYS[1]
+local lock_key = KEYS[2]
+local owner_key = KEYS[3]
+local name = string.match(lock_key, 'lock:(.+):[RW]:.+')
+local mode = string.match(lock_key, 'lock:.+:([RW]):.+')
+local owner = string.match(lock_key, 'lock:.+:[RW]:(.+)')
+local retval = redis.call('get', lock_key)
 if retval == false then
     return 'false'
 else
-    if tonumber(retval) == 1 then
-        redis.call('del', lock)
-        redis.call('srem', rsrc, mode..':'..owner)
+    local rcnt = tonumber(string.match(retval, '(.+):.+'))
+    local time = string.match(retval, '.+:(.+)')
+    if rcnt == 1 then
+        redis.call('del', lock_key)
+        redis.call('srem', rsrc_key, mode..':'..owner)
+        redis.call('srem', owner_key, mode..':'..name)
     else
-        redis.call('decr', lock)
+        rcnt = rcnt - 1
+        redis.call('set', lock_key, rcnt..':'..time)
     end
 end
 return 'true'
 """
+
+
+# Looks dirty, but OK
+# Compare two time strings given in format of 'sec.usec'
+def _cmp_time(left, right):
+    left_sec_s, left_usec_s = re.match(r'(.+)\.(.+)', left).group(1, 2)
+    right_sec_s, right_usec_s = re.match(r'(.+)\.(.+)', right).group(1, 2)
+    left_sec, left_usec = int(left_sec_s), int(left_usec_s)
+    right_sec, right_usec = int(right_sec_s), int(right_usec_s)
+    if left_sec < right_sec:
+        return -1
+    elif left_sec == right_sec:
+        if left_usec < right_usec:
+            return -1
+        elif left_usec == right_usec:
+            return 0
+        else:
+            return 1
+    else:
+        return 1
 
 
 # lock result used as token
@@ -104,14 +154,15 @@ class Rwlock:
         self.pid = pid
         self.status = None
 
-    def get_rsrc(self):
+    def rsrc_key(self):
         return 'rsrc:' + self.name
 
-    def get_lock(self):
+    def lock_key(self):
         return self.__str__()
 
     def __str__(self):
-        return 'lock:' + self.name + ':' + self.mode + ':' + self.node + '/' + self.pid
+        return 'lock:' + self.name + ':' + self.mode + ':' + \
+            self.node + '/' + self.pid
 
 
 class RwlockClient:
@@ -127,6 +178,13 @@ class RwlockClient:
     def get_owner(self):
         return self.node + '/' + self.pid
 
+    def owner_key(self):
+        return 'owner:' + self.get_owner()
+
+    def redis_time(self):
+        sec, usec = self.redis.time()
+        return str(sec) + '.' + str(usec)
+
     def lock(self, name, mode, timeout=0, retry_interval=0.1):
         """Locks on a named resource with mode in timeout.
 
@@ -140,10 +198,13 @@ class RwlockClient:
         returns rwlock, check status field to know lock obtained or failed
         """
         t1 = t2 = time.monotonic()
+        redis_time = self.redis_time()
         rwlock = Rwlock(name, mode, self.node, self.pid)
         while timeout == Rwlock.FOREVER or t2 - t1 <= timeout:
             retval = self.redis.eval(
-                _LOCK_SCRIPT, 2, rwlock.get_rsrc(), rwlock.get_lock())
+                _LOCK_SCRIPT, 3,
+                rwlock.rsrc_key(), rwlock.lock_key(), self.owner_key(),
+                redis_time)
             lock_ok = True if retval == b'true' else False
             if lock_ok:
                 rwlock.status = Rwlock.OK
@@ -168,56 +229,74 @@ class RwlockClient:
         false if there is no such lock to unlock
         """
         retval = self.redis.eval(
-            _UNLOCK_SCRIPT, 2, rwlock.get_rsrc(), rwlock.get_lock())
+            _UNLOCK_SCRIPT, 3,
+            rwlock.rsrc_key(), rwlock.lock_key(), self.owner_key())
         return retval == b'true'
 
-    # TODO: Avoid full scan of lock list
-    # by maintaining redisrwlock:owner -> { set of resources names }
-    # with this additional info, I can;
-    # (1) find out stale owners
-    # (2) then unlock locks of each stale owner
+    # TODO: Use 'SCAN' instead of 'KEYS' in gc
     def gc(self):
-        """Removes stale locks and waits created by crashed/exit
-        clients without unlocking or proper cleanup.
+        """Removes stale locks, waits, and owner itself created by
+        crashed/exit clients without unlocking or proper cleanup.
 
         Used by garbage collecting daemon or monitor
         """
-        # Get lock and wait list before client list
-        # Otherwise, we may mistakenly remove locks or waits
+        # We get owners and waits before client list
+        # Otherwise, we may mistakenly remove some lock, owner, or wait
         # made by last clients not included in the client list
-        lock_list = self.redis.keys('lock:*:[RW]:*')
-        wait_list = self.redis.keys('wait:*')
-        active_set = set()
+        #
+        # And we avoid full scan of lock list
+        # by exploiting owner -> { set of access }
+        # (1) find out stale owners
+        # (2) delete locks and grants of stale owners
+        # (3) delete waits of stale owners
+        # (4) finally, delete stale owners itself
+        owners = set()
+        for owner_key in self.redis.keys('owner:*'):
+            owners.add(re.match(r'owner:(.+)', owner_key.decode()).group(1))
+        waits = set()
+        for wait_key in self.redis.keys('wait:*'):
+            waits.add(re.match(r'wait:(.+)', wait_key.decode()).group(1))
+        active_owners = set()
         for client in self.redis.client_list():
             m = re.match(r'redisrwlock:(.+)', client['name'])
             if m:
-                active_set.add(m.group(1))
-        count = 0
-        # Gc stale lock and grant
-        for lock in lock_list:
-            m = re.match(r'lock:(.+):([RW]):(.+)', lock.decode())
-            assert m is not None
-            name, mode, owner = m.group(1, 2, 3)
-            if owner not in active_set:
-                self.redis.delete(lock)
+                active_owners.add(m.group(1))
+        # (1) Find out stale owners
+        stale_owners = set()
+        for owner in owners:
+            if owner not in active_owners:
+                stale_owners.add(owner)
+        # (2) Gc locks and grants of stale owners
+        stale_lock_count = 0
+        for owner in stale_owners:
+            for access in self.redis.smembers('owner:' + owner):
+                m = re.match(r'([RW]):(.+)', access.decode())
+                mode, name = m.group(1, 2)
+                lock = name + ':' + mode + ':' + owner
+                self.redis.delete('lock:' + lock)
                 self.redis.srem('rsrc:' + name, mode + ':' + owner)
-                count += 1
-                logging.debug('gc: ' + lock.decode())
-        if count > 0:
-            logging.debug('gc: ' + str(count) + ' lock(s)')
-        count = 0
-        # Gc stale waitor and waitee
-        for wait in wait_list:
-            waitor = re.match(r'wait:(.+)', wait.decode()).group(1)
-            if waitor not in active_set:
-                self.redis.delete(wait)
-                count += 1
-                logging.debug('gc: ' + wait.decode())
-                # XXX 'SREM' from other waitors having this waitor as member
+                stale_lock_count += 1
+                logging.info('gc: ' + 'lock:' + lock)
+        # (3) Gc waitors and waitees? of stale owners
+        stale_wait_count = 0
+        for waitor in waits:
+            if waitor in stale_owners:
+                self.redis.delete('wait:' + waitor)
+                stale_wait_count += 1
+                logging.info('gc: ' + 'wait:' + waitor)
+                # Note: 'SREM' from other waitors having this waitor as member
                 # This seems not required, because active waitors rebuild
                 # their wait sets when they retry locking.
-        if count > 0:
-            logging.debug('gc: ' + str(count) + ' wait(s)')
+        # (4) Delete stale owners
+        stale_owner_count = 0
+        for owner in stale_owners:
+            self.redis.delete('owner:' + owner)
+            stale_owner_count += 1
+            logging.info('gc: ' + 'owner:' + owner)
+        # Gc report
+        logging.info('gc: ' + str(stale_lock_count) + ' lock(s), ' +
+                     str(stale_wait_count) + ' wait(s), ' +
+                     str(stale_owner_count) + ' owner(s)')
 
     def _deadlock(self, name, mode):
         self._waitset(name, mode)
@@ -226,13 +305,13 @@ class RwlockClient:
             return self._victim(path)
         return False
 
+    # Make sure wait set is up to date before deadlock detection
     # This could be done in _LOCK_SCRIPT, but here to satisfy redis
     # EVAL KEYS semantic
     def _waitset(self, name, mode):
-        """Make sure wait set is up to date before deadlock detection"""
         myself = self.get_owner()
         grants = self.redis.smembers('rsrc:' + name)
-        self.redis.sadd('wait:' + myself, '__dummy__')
+        self.redis.sadd('wait:' + myself, '__dummy_seed_waitee__')
         if logging.getLogger().isEnabledFor(logging.DEBUG):
             waitees = list()
         for grant in grants:
@@ -267,21 +346,36 @@ class RwlockClient:
         visited.add(current)
         return False
 
-    # FIXME: Introduce time when lock first granted to determine victim
-    # Current implementation just determine with process id.
-    #
     # Among the waitors in cycle, one who lives long with granted lock
     # will survive.
     # (1) oldest lock granted for each waitor
-    # (2) victim waitor with youngest lock granted obtained from (1)
+    # (2) victim is waitor with youngest lock granted obtained from (1)
     def _victim(self, path):
-        myself = self.get_owner()
+        victim, victim_time = None, None
         for waitor in path:
-            if waitor < myself:
-                logging.debug('_victim: %s, not victim. retry ...', myself)
-                return False
+            waitor_time = self._oldest_lock_access_time(waitor)
+            if victim is None or _cmp_time(waitor_time, victim_time) < 0:
+                victim, victim_time = waitor, waitor_time
+        assert victim is not None
+        myself = self.get_owner()
+        if victim != myself:
+            logging.debug('_victim: %s, not victim. retry ...', myself)
+            return False
         logging.debug('_victim: %s, the victim. DEADLOCK.', myself)
         return True
+
+    # Oldest lock access time,
+    # the representative (oldest) lock access time of this waitor
+    def _oldest_lock_access_time(self, waitor):
+        waitor_time = None
+        for access in self.redis.smembers('owner:' + waitor):
+            mode, name = re.match(r'([RW]):(.+)', access.decode()).group(1, 2)
+            lock = self.redis.get('lock:' + name + ':' + mode + ':' + waitor)
+            access_time = re.match(r'.+:(.+)', lock.decode()).group(1)
+            if waitor_time is None or _cmp_time(access_time, waitor_time) < 0:
+                waitor_time = access_time
+        assert waitor_time is not None
+        return waitor_time
 
     # For test aid, not public
     def _clear_all(self):
@@ -292,19 +386,61 @@ class RwlockClient:
         for rsrc in self.redis.keys('rsrc:*'):
             logging.debug('_clear_all: ' + rsrc.decode())
             count += self.redis.delete(rsrc.decode())
+        for owner in self.redis.keys('owner:*'):
+            logging.debug('_clear_all: ' + owner.decode())
+            count += self.redis.delete(owner.decode())
         for wait in self.redis.keys('wait:*'):
             logging.debug('_clear_all: ' + wait.decode())
             count += self.redis.delete(wait.decode())
         return True if count > 0 else False
 
 
-# Gc periodically
-if __name__ == '__main__':
+def usage():
+    print("Usage: %s [option] ..." % sys.argv[0])
+    print("")
+    print("Options:")
+    print("  -h, --help      print this help message and exit")
+    print("  -V, --version   print version and exit")
+    print("  -r, --repeat    repeat gc in every 5 seconds (Control-C to quit)")
+    print("                  if not specified, just gc one time and exit")
 
+
+def version():
+    print("%s 0.1.1" % sys.argv[0])
+
+
+def main():
+    try:
+        opts, args = getopt.getopt(
+            sys.argv[1:],
+            "hVr",
+            ["help", "version", "repeat"])
+    except getopt.GetoptError as err:
+        print(err)
+        sys.exit(1)
+    opt_repeat = False
+    for opt, opt_arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit()
+        elif opt in ("-V", "--version"):
+            version()
+            sys.exit()
+        elif opt in ("-r", "--repeat"):
+            opt_repeat = True
+        else:
+            assert False, "unhandled option"
+    # Gc periodically
+    client = RwlockClient()
     while True:
-        _client = RwlockClient()
-        _client.gc()
-        logging.debug('redisrwlock gc')
+        logging.info('redisrwlock gc')
+        client.gc()
+        if not opt_repeat:
+            break
         time.sleep(5)
 
-# TODO: high availability! research if redis-sentinel can help
+
+if __name__ == '__main__':
+    main()
+
+# TODO: high availability! redis sentinel or replication?

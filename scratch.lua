@@ -1,14 +1,13 @@
-local client_list = redis.call('client', 'list')
-local locks = redis.call('keys', 'lock:*:[RW]:*')
-for i, lock in ipairs(locks) do
-    local owner = string.match(lock, 'lock:.+:[RW]:(.*)')
-    if string.find(client_list, 'name='..owner, 1, true) == nil then
-        local name = string.match(lock, 'lock:(.+):[RW]:.+')
-        local mode = string.match(lock, 'lock:.+:([RW]):.+')
-        redis.call('del', lock)
-        redis.call('srem', 'rsrc:'..name, mode..':'..onwer)
-        if redis.call('scard', 'rsrc:'..name) == 0 then
-            redis.call('del', 'rsrc:'..name)
-        end
-    end
+-- redis-cli --ldb --eval scratch.lua , 1482412261.182691
+--- local time = redis.call('time') -- non-deterministic
+local retval = redis.call('get', 'lock-name-x')
+if retval == false then
+    local refcnt = '1'
+    local time = ARGV[1]
+    redis.call('set', 'lock-name-x', refcnt..':'..time)
+else
+    local refcnt = tonumber(string.match(retval, '(.+):.+')) + 1
+    local time = string.match(retval, '.+:(.+)')
+    redis.call('set', 'lock-name-x', refcnt..':'..time)
 end
+print('DEBUG lock-name-x='..redis.call('get', 'lock-name-x'))

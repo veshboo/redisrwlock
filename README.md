@@ -23,7 +23,5 @@ with Redis server. Tune with retry_interval for your task.
 
 ## TODOs
 
-* TODO: High availability
-* FIXME: Introduce time when lock first granted to determine victim,
-  Current implementation just determine with process id.
-
+* TODO: high availability! redis sentinel or replication?
+* TODO: Use 'SCAN' instead of 'KEYS' in gc
