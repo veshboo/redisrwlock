@@ -110,9 +110,11 @@ def _cmp_time(left, right):
     if left_sec < right_sec:
         return -1
     elif left_sec == right_sec:
-        # Comapre sub-seconds part lexically (0.30 < 0.4)
-        left_usec = re.match(r'.+\.(.+)', left).group(1)
-        right_usec = re.match(r'.+\.(.+)', right).group(1)
+        # Comapre sub-seconds part also numerically
+        # When input is '0.30' and '0.4' means
+        # not 0.30s and 0.4s, but 30us 4us
+        left_usec = int(re.match(r'.+\.(.+)', left).group(1))
+        right_usec = int(re.match(r'.+\.(.+)', right).group(1))
         if left_usec < right_usec:
             return -1
         elif left_usec == right_usec:
