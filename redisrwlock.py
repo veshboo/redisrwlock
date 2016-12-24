@@ -358,6 +358,8 @@ class RwlockClient:
         victim, victim_time = None, None
         for waitor in path:
             waitor_time = self._oldest_lock_access_time(waitor)
+            if waitor_time is None:
+                return False
             if victim is None or _cmp_time(waitor_time, victim_time) < 0:
                 victim, victim_time = waitor, waitor_time
         assert victim is not None
@@ -375,10 +377,14 @@ class RwlockClient:
         for access in self.redis.smembers('owner:' + waitor):
             mode, name = re.match(r'([RW]):(.+)', access.decode()).group(1, 2)
             lock = self.redis.get('lock:' + name + ':' + mode + ':' + waitor)
+            # lock can be deleted if DEADLOCK victim unlocked already
+            if not lock:
+                continue
             access_time = re.match(r'.+:(.+)', lock.decode()).group(1)
             if waitor_time is None or _cmp_time(access_time, waitor_time) < 0:
                 waitor_time = access_time
-        assert waitor_time is not None
+        # waitor_time can be None when waitor is other waitor who is
+        # selected as victim and returned after remove its wait set.
         return waitor_time
 
     # For test aid, not public
