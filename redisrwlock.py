@@ -104,13 +104,15 @@ return 'true'
 # Looks dirty, but OK
 # Compare two time strings given in format of 'sec.usec'
 def _cmp_time(left, right):
-    left_sec_s, left_usec_s = re.match(r'(.+)\.(.+)', left).group(1, 2)
-    right_sec_s, right_usec_s = re.match(r'(.+)\.(.+)', right).group(1, 2)
-    left_sec, left_usec = int(left_sec_s), int(left_usec_s)
-    right_sec, right_usec = int(right_sec_s), int(right_usec_s)
+    # Compare seconds part numerically (30 > 4)
+    left_sec = int(re.match(r'(.+)\..+', left).group(1))
+    right_sec = int(re.match(r'(.+)\..+', right).group(1))
     if left_sec < right_sec:
         return -1
     elif left_sec == right_sec:
+        # Comapre sub-seconds part lexically (0.30 < 0.4)
+        left_usec = re.match(r'.+\.(.+)', left).group(1)
+        right_usec = re.match(r'.+\.(.+)', right).group(1)
         if left_usec < right_usec:
             return -1
         elif left_usec == right_usec:
