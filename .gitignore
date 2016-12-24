@@ -4,3 +4,8 @@ __pycache__/
 
 # Rdis snapshot
 dump.rdb
+
+# Coverage.py
+.coverage
+.coveragerc
+htmlcov/
