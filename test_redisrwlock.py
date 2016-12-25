@@ -8,6 +8,21 @@ import subprocess
 import time
 
 
+# Gc test util, run gc with expected message output
+def runGcExpect(message):
+    gc = subprocess.Popen(['python3', 'redisrwlock.py'],
+                          stdout=subprocess.PIPE,
+                          universal_newlines=True)
+    found = False
+    for line in gc.stdout:
+        if message in line:
+            found = True
+            break
+    gc.stdout.close()
+    gc.wait()
+    return found
+
+
 def setUpModule():
     global _server, _dumper
     _server, _dumper = runRedisServer()
@@ -115,7 +130,8 @@ class TestRedisRwlock_gc(unittest.TestCase):
         """
         test gc by lock then exit without unlock
         """
-        # Client1 lock then exit without unlock
+        # Client1: N-GC1 --- exit
+        # Client2: -------------- gc --- N-GC1
         client1_command = '''\
 from redisrwlock import Rwlock, RwlockClient
 client = RwlockClient()
@@ -123,13 +139,8 @@ client.lock('N-GC1', Rwlock.READ)
 '''
         client1 = subprocess.Popen(['python3', '-c', client1_command])
         client1.wait()
-        # print("DEBUG client1 return: " + str(client1.returncode))
-        # --
-        # Now, test client2 try lock after gc,
-        # should fail without gc, pass with gc.
-        gc = subprocess.Popen(['python3', 'redisrwlock.py'])  # No repeat
-        # TODO: test with gc report output
-        gc.wait()
+        message = 'gc: 1 lock(s), 0 wait(s), 1 owner(s)'
+        self.assertTrue(runGcExpect(message))
         client2 = RwlockClient()
         rwlock2 = client2.lock('N-GC1', Rwlock.WRITE)
         self.assertEqual(rwlock2.status, Rwlock.OK)
@@ -148,13 +159,13 @@ client = RwlockClient()
 rwlock2_1 = client.lock('N-GC1', Rwlock.WRITE, timeout=Rwlock.FOREVER)
 '''
         client2 = subprocess.Popen(['python3', '-c', client2_command])
-        time.sleep(1)
+        time.sleep(0.2)  # enough time for client2 to start wait
         client2.terminate()
         client2.wait()
-        gc = subprocess.Popen(['python3', 'redisrwlock.py'])
-        # TODO: test with gc report output
-        gc.wait()
+        message = 'gc: 0 lock(s), 1 wait(s), 0 owner(s)'
+        self.assertTrue(runGcExpect(message))
         client1.unlock(rwlock1_1)
+
 
 class TestRedisRwlock_deadlock(unittest.TestCase):
 

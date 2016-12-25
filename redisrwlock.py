@@ -295,7 +295,7 @@ class RwlockClient:
             # Note: 'SREM' from other waitors having this waitor as member
             # This seems not required, because active waitors rebuild
             # their wait sets when they retry locking.
-        # (4) Delete stale owners
+        # (4) Gc stale owners
         stale_owner_count = 0
         for owner in stale_owners:
             self.redis.delete('owner:' + owner)
