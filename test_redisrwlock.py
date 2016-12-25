@@ -128,16 +128,37 @@ client.lock('N-GC1', Rwlock.READ)
         # Now, test client2 try lock after gc,
         # should fail without gc, pass with gc.
         gc = subprocess.Popen(['python3', 'redisrwlock.py'])  # No repeat
+        # TODO: test with gc report output
         gc.wait()
         client2 = RwlockClient()
         rwlock2 = client2.lock('N-GC1', Rwlock.WRITE)
         self.assertEqual(rwlock2.status, Rwlock.OK)
         client2.unlock(rwlock2)
 
+    def test_gc_wait(self):
+        """test gc when there is stale wait set"""
+        # Client1: N-GC1 ------------ terminate client2 --- gc
+        # Client2:       N-GC1 - wait
+        client1 = RwlockClient()
+        rwlock1_1 = client1.lock('N-GC1', Rwlock.READ)
+        client2_command = '''\
+from redisrwlock import Rwlock, RwlockClient
+import sys
+client = RwlockClient()
+rwlock2_1 = client.lock('N-GC1', Rwlock.WRITE, timeout=Rwlock.FOREVER)
+'''
+        client2 = subprocess.Popen(['python3', '-c', client2_command])
+        time.sleep(1)
+        client2.terminate()
+        client2.wait()
+        gc = subprocess.Popen(['python3', 'redisrwlock.py'])
+        # TODO: test with gc report output
+        gc.wait()
+        client1.unlock(rwlock1_1)
 
 class TestRedisRwlock_deadlock(unittest.TestCase):
 
-    def setup(self):
+    def setUp(self):
         cleanUpRedisKeys()
 
     def tearDown(self):
@@ -146,8 +167,8 @@ class TestRedisRwlock_deadlock(unittest.TestCase):
 
     def test_deadlock(self):
         """test deadlock detection"""
-        # Client1: N-DL1 ----------------- sleep(1) --- N-DL2
-        # Client2:        N-DL2 --- N-DL1
+        # Client1: N-DL1 --------------- N-DL2
+        # Client2:       N-DL2 --- N-DL1
         client1 = RwlockClient()
         rwlock1_1 = client1.lock('N-DL1', Rwlock.WRITE, timeout=Rwlock.FOREVER)
         client2_command = '''\

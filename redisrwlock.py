@@ -244,32 +244,37 @@ class RwlockClient:
 
         Used by garbage collecting daemon or monitor
         """
-        # We get owners and waits before client list
+        # We get owners and waitors before active client list
         # Otherwise, we may mistakenly remove some lock, owner, or wait
         # made by last clients not included in the client list
         #
-        # And we avoid full scan of lock list
+        # And we avoid scan of lock list
         # by exploiting owner -> { set of access }
-        # (1) find out stale owners
+        #
+        # (1) find out stale owners and waitors
         # (2) delete locks and grants of stale owners
-        # (3) delete waits of stale owners
-        # (4) finally, delete stale owners itself
+        # (3) delete stale waits
+        # (4) delete stale owners
         owners = set()
         for owner_key in self.redis.keys('owner:*'):
             owners.add(re.match(r'owner:(.+)', owner_key.decode()).group(1))
-        waits = set()
+        waitors = set()
         for wait_key in self.redis.keys('wait:*'):
-            waits.add(re.match(r'wait:(.+)', wait_key.decode()).group(1))
-        active_owners = set()
+            waitors.add(re.match(r'wait:(.+)', wait_key.decode()).group(1))
+        active_clients = set()
         for client in self.redis.client_list():
             m = re.match(r'redisrwlock:(.+)', client['name'])
             if m:
-                active_owners.add(m.group(1))
-        # (1) Find out stale owners
+                active_clients.add(m.group(1))
+        # (1) Find out stale owners and waits
         stale_owners = set()
         for owner in owners:
-            if owner not in active_owners:
+            if owner not in active_clients:
                 stale_owners.add(owner)
+        stale_waitors = set()
+        for waitor in waitors:
+            if waitor not in active_clients:
+                stale_waitors.add(waitor)
         # (2) Gc locks and grants of stale owners
         stale_lock_count = 0
         for owner in stale_owners:
@@ -283,14 +288,13 @@ class RwlockClient:
                 logging.info('gc: ' + 'lock:' + lock)
         # (3) Gc waitors and waitees? of stale owners
         stale_wait_count = 0
-        for waitor in waits:
-            if waitor in stale_owners:
-                self.redis.delete('wait:' + waitor)
-                stale_wait_count += 1
-                logging.info('gc: ' + 'wait:' + waitor)
-                # Note: 'SREM' from other waitors having this waitor as member
-                # This seems not required, because active waitors rebuild
-                # their wait sets when they retry locking.
+        for waitor in stale_waitors:
+            self.redis.delete('wait:' + waitor)
+            stale_wait_count += 1
+            logging.info('gc: ' + 'wait:' + waitor)
+            # Note: 'SREM' from other waitors having this waitor as member
+            # This seems not required, because active waitors rebuild
+            # their wait sets when they retry locking.
         # (4) Delete stale owners
         stale_owner_count = 0
         for owner in stale_owners:
@@ -439,7 +443,7 @@ def main():
         elif opt in ("-r", "--repeat"):
             opt_repeat = True
         else:
-            assert False, "unhandled option"
+            assert False, "unhandled option"  # pragma: no cover
     # Gc periodically
     client = RwlockClient()
     while True:
