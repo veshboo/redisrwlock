@@ -362,6 +362,8 @@ class RwlockClient:
         victim, victim_time = None, None
         for waitor in path:
             waitor_time = self._oldest_lock_access_time(waitor)
+            # waitor_time can be None when waitor is other waitor who is
+            # selected as victim and returned after remove its wait set.
             if waitor_time is None:
                 return False
             if victim is None or _cmp_time(waitor_time, victim_time) > 0:
@@ -387,8 +389,6 @@ class RwlockClient:
             access_time = re.match(r'.+:(.+)', lock.decode()).group(1)
             if waitor_time is None or _cmp_time(access_time, waitor_time) < 0:
                 waitor_time = access_time
-        # waitor_time can be None when waitor is other waitor who is
-        # selected as victim and returned after remove its wait set.
         return waitor_time
 
     # For test aid, not public

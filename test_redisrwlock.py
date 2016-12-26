@@ -3,6 +3,7 @@ from test_redisrwlock_connection import (
     runRedisServer, terminateRedisServer, cleanUpRedisKeys)
 
 import unittest
+import logging
 import os
 import subprocess
 import time
@@ -231,12 +232,64 @@ sys.exit(status)
 '''
         client2 = subprocess.Popen(['python3', '-c', client2_command])
         time.sleep(2)
+        # I noticed more chance to be covered
+        # when debug messages suppressed
+        lvl = logging.getLogger().getEffectiveLevel()
+        logging.getLogger().setLevel(logging.WARNING)
         t1 = time.monotonic()
         rwlock1_2 = client1.lock('N-DL2', Rwlock.READ, timeout=2,
                                  retry_interval=0)
         t2 = time.monotonic()
+        logging.getLogger().setLevel(lvl)
         self.assertTrue(t2 - t1 < 2)
         self.assertEqual(rwlock1_2.status, Rwlock.OK)
         client1.unlock(rwlock1_1)
         client1.unlock(rwlock1_2)
         self.assertEqual(client2.wait(), 0)
+
+    def test_deadlock_with_many_waitors(self):
+        """test deadlock with many waitors are involved.
+
+        cover [waitor_time can be None when a victim returned]
+        in _victim()"""
+        # Client1: DL1 --- DL2
+        # Client2:  DL2 --- DL3
+        # Client3:   DL3 --- DL4
+        # ...             ...
+        # ClientN:     DLn --- DL1 (victim)
+        template = '''\
+from redisrwlock import Rwlock, RwlockClient
+import sys
+import time
+client = RwlockClient()
+rwlock1 = client.lock('N-DL-#{0}', Rwlock.WRITE,
+                      timeout=Rwlock.FOREVER)
+time.sleep(1)
+if rwlock1.status != Rwlock.OK:
+    print('DEBUG first lock should be OK')
+rwlock2 = client.lock('N-DL-#{1}', Rwlock.WRITE,
+                      timeout=Rwlock.FOREVER,
+                      retry_interval=0)
+status = 0 if rwlock2.status == Rwlock.OK else 1
+if status == 0:
+    client.unlock(rwlock2)
+client.unlock(rwlock1)
+sys.exit(status)
+'''
+        clients = list()
+        n = 10
+        for i in range(0, n):
+            n1, n2 = i, i + 1 if i < n - 1 else 0
+            command = template.format(n1, n2)
+            # I noticed more chance to be covered
+            # when stdout redirect to DEVNULL
+            client = subprocess.Popen(['python3', '-c', command],
+                                      stdout=subprocess.DEVNULL)
+            clients.append(client)
+            if i < n - 1:
+                time.sleep(0.2)
+        # One should get DEADLOCK and others OK
+        status_sum = 0
+        for client in clients:
+            status_sum += client.wait()
+        self.assertEqual(status_sum, 1)
