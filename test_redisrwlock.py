@@ -159,7 +159,7 @@ client = RwlockClient()
 rwlock2_1 = client.lock('N-GC1', Rwlock.WRITE, timeout=Rwlock.FOREVER)
 '''
         client2 = subprocess.Popen(['python3', '-c', client2_command])
-        time.sleep(0.2)  # enough time for client2 to start wait
+        time.sleep(0.5)  # enough time for client2 to start wait
         client2.terminate()
         client2.wait()
         message = 'gc: 0 lock(s), 1 wait(s), 0 owner(s)'
@@ -179,7 +179,7 @@ class TestRedisRwlock_deadlock(unittest.TestCase):
     def test_deadlock(self):
         """test deadlock detection"""
         # Client1: N-DL1 --------------- N-DL2
-        # Client2:       N-DL2 --- N-DL1
+        # Client2:       N-DL2 --- N-DL1 (victim)
         client1 = RwlockClient()
         rwlock1_1 = client1.lock('N-DL1', Rwlock.WRITE, timeout=Rwlock.FOREVER)
         client2_command = '''\
@@ -188,20 +188,55 @@ import sys
 client = RwlockClient()
 rwlock2_2 = client.lock('N-DL2', Rwlock.WRITE, timeout=Rwlock.FOREVER)
 rwlock2_1 = client.lock('N-DL1', Rwlock.WRITE, timeout=Rwlock.FOREVER)
-# Should return after deadlock detected in client1
-status = 0 if rwlock2_1.status == Rwlock.OK else 1
-client.unlock(rwlock2_1)
-client.unlock(rwlock2_2)
+status = 0 if rwlock2_1.status == Rwlock.DEADLOCK else 1
+client.unlock(rwlock2_2) # unblock client1 from lock
 sys.exit(status)
 '''
         client2 = subprocess.Popen(['python3', '-c', client2_command])
         time.sleep(1)
-        # This should result in deadlock before timeout
         t1 = time.monotonic()
         rwlock1_2 = client1.lock('N-DL2', Rwlock.READ, timeout=2)
         t2 = time.monotonic()
-        self.assertEqual(rwlock1_2.status, Rwlock.DEADLOCK)
-        client1.unlock(rwlock1_1)  # unblock client2 from lock
-        # print("DEBUG t2 - t1 =" + str(t2 - t1))
         self.assertTrue(t2 - t1 < 2)
-        self.assertEqual(client2.wait(1), 0)
+        self.assertEqual(rwlock1_2.status, Rwlock.OK)
+        client1.unlock(rwlock1_1)
+        client1.unlock(rwlock1_2)
+        self.assertEqual(client2.wait(), 0)
+
+    def test_deadlock_with_many_locks(self):
+        """test deadlock when victim has many granted locks.
+
+        cover [lock can be deleted if DEADLOCK victim unlocked]
+        in _oldest_lock_access_time()"""
+        # Client1: N-DL1 ------------------- N-DL2
+        # Client2:       ... N-DL2 --- N-DL1 (victim)
+        # In '...', have many locks unrelated to deadlock
+        client1 = RwlockClient()
+        rwlock1_1 = client1.lock('N-DL1', Rwlock.WRITE, timeout=Rwlock.FOREVER)
+        client2_command = '''\
+from redisrwlock import Rwlock, RwlockClient
+import sys
+client = RwlockClient()
+# locks many unrelated successfully
+rwlock2_many = list()
+for i in range(0, 1000):
+    rwlock2_many.append(client.lock('N-DL2-#' + str(i), Rwlock.READ))
+rwlock2_2 = client.lock('N-DL2', Rwlock.WRITE, timeout=Rwlock.FOREVER)
+rwlock2_1 = client.lock('N-DL1', Rwlock.WRITE, timeout=Rwlock.FOREVER)
+status = 0 if rwlock2_1.status == Rwlock.DEADLOCK else 1
+client.unlock(rwlock2_2)  # unblock client1 from lock
+for i in range(0, 1000):
+    client.unlock(rwlock2_many[999 - i])
+sys.exit(status)
+'''
+        client2 = subprocess.Popen(['python3', '-c', client2_command])
+        time.sleep(2)
+        t1 = time.monotonic()
+        rwlock1_2 = client1.lock('N-DL2', Rwlock.READ, timeout=2,
+                                 retry_interval=0)
+        t2 = time.monotonic()
+        self.assertTrue(t2 - t1 < 2)
+        self.assertEqual(rwlock1_2.status, Rwlock.OK)
+        client1.unlock(rwlock1_1)
+        client1.unlock(rwlock1_2)
+        self.assertEqual(client2.wait(), 0)

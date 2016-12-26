@@ -364,7 +364,7 @@ class RwlockClient:
             waitor_time = self._oldest_lock_access_time(waitor)
             if waitor_time is None:
                 return False
-            if victim is None or _cmp_time(waitor_time, victim_time) < 0:
+            if victim is None or _cmp_time(waitor_time, victim_time) > 0:
                 victim, victim_time = waitor, waitor_time
         assert victim is not None
         myself = self.get_owner()
