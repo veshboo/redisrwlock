@@ -409,7 +409,7 @@ class RwlockClient:
         return True if count > 0 else False
 
 
-def usage():
+def usage():  # pragma: no cover
     print("Usage: %s [option] ..." % sys.argv[0])
     print("")
     print("Options:")
@@ -419,11 +419,11 @@ def usage():
     print("                  if not specified, just gc one time and exit")
 
 
-def version():
+def version():  # pragma: no cover
     print("%s 0.1.1" % sys.argv[0])
 
 
-def main():
+def main():  # pragma: no cover
     try:
         opts, args = getopt.getopt(
             sys.argv[1:],

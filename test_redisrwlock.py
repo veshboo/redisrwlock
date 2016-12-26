@@ -293,3 +293,28 @@ sys.exit(status)
         for client in clients:
             status_sum += client.wait()
         self.assertEqual(status_sum, 1)
+
+
+class TestRedisRwlock_clear_all(unittest.TestCase):
+
+    def setUp(self):
+        cleanUpRedisKeys()
+
+    def tearDown(self):
+        cleanUpRedisKeys()
+        pass
+
+    def test_clear_all(self):
+        """test _clean_all"""
+        # Make rsrc, lock, owner, wait keys by using apis
+        # then just call _clear_all(), gc must not be running
+        RwlockClient().lock('N-CLEAR-ALL', Rwlock.WRITE)
+        client2_command = '''\
+from redisrwlock import Rwlock, RwlockClient
+RwlockClient().lock('N-CLEAR-ALL', Rwlock.WRITE, timeout=Rwlock.FOREVER)
+'''
+        client2 = subprocess.Popen(['python3', '-c', client2_command])
+        time.sleep(1)
+        self.assertTrue(RwlockClient()._clear_all())
+        client2.wait()
+        self.assertTrue(RwlockClient()._clear_all())

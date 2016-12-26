@@ -41,7 +41,7 @@ _UNNEATY_AFTER_TEST = '!!! SOME REDISRWLOCK KEYS REMAIN AFTER TEST !!!'
 
 def cleanUpRedisKeys():
     if RwlockClient()._clear_all():
-        print(_UNNEATY_AFTER_TEST)
+        print(_UNNEATY_AFTER_TEST)  # pragma: no cover
 
 
 class TestRedisRwlock_connection(unittest.TestCase):
