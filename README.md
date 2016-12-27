@@ -75,4 +75,3 @@ coverage html
 ## TODOs
 
 * TODO: high availability! redis sentinel or replication?
-* TODO: Use 'SCAN' instead of 'KEYS' in gc

@@ -189,6 +189,12 @@ class RwlockClient:
         sec, usec = self.redis.time()
         return str(sec) + '.' + str(usec)
 
+    # Avoid use of 'KEYS'
+    # return scan_iter with specified matching pattern and count=128
+    # I just assume key length 32 bytes and 4K bytes unit i/o
+    def _redis_scan_iter(self, pattern):
+        return self.redis.scan_iter(match=pattern, count=128)
+
     def lock(self, name, mode, timeout=0, retry_interval=0.1):
         """Locks on a named resource with mode in timeout.
 
@@ -237,7 +243,6 @@ class RwlockClient:
             rwlock.rsrc_key(), rwlock.lock_key(), self.owner_key())
         return retval == b'true'
 
-    # TODO: Use 'SCAN' instead of 'KEYS' in gc
     def gc(self):
         """Removes stale locks, waits, and owner itself created by
         crashed/exit clients without unlocking or proper cleanup.
@@ -256,10 +261,10 @@ class RwlockClient:
         # (3) delete stale waits
         # (4) delete stale owners
         owners = set()
-        for owner_key in self.redis.keys('owner:*'):
+        for owner_key in self._redis_scan_iter('owner:*'):
             owners.add(re.match(r'owner:(.+)', owner_key.decode()).group(1))
         waitors = set()
-        for wait_key in self.redis.keys('wait:*'):
+        for wait_key in self._redis_scan_iter('wait:*'):
             waitors.add(re.match(r'wait:(.+)', wait_key.decode()).group(1))
         active_clients = set()
         for client in self.redis.client_list():
@@ -394,16 +399,16 @@ class RwlockClient:
     # For test aid, not public
     def _clear_all(self):
         count = 0
-        for lock in self.redis.keys('lock:*:[RW]:*'):
+        for lock in self._redis_scan_iter('lock:*:[RW]:*'):
             logging.debug('_clear_all: ' + lock.decode())
             count += self.redis.delete(lock.decode())
-        for rsrc in self.redis.keys('rsrc:*'):
+        for rsrc in self._redis_scan_iter('rsrc:*'):
             logging.debug('_clear_all: ' + rsrc.decode())
             count += self.redis.delete(rsrc.decode())
-        for owner in self.redis.keys('owner:*'):
+        for owner in self._redis_scan_iter('owner:*'):
             logging.debug('_clear_all: ' + owner.decode())
             count += self.redis.delete(owner.decode())
-        for wait in self.redis.keys('wait:*'):
+        for wait in self._redis_scan_iter('wait:*'):
             logging.debug('_clear_all: ' + wait.decode())
             count += self.redis.delete(wait.decode())
         return True if count > 0 else False
