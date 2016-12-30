@@ -21,7 +21,59 @@ with `retry_interval` and `redis-sentinel`ed gc command for your task.
 
 ## Usages
 
-* Please consult `test_redisrwlock.py` and `test_redisrwlock_connection.py`
+### Install
+
+...
+
+### Try lock with timeout=0
+
+With timeout=0, RwlockClinet.lock acts as so called try_lock.
+
+``` python
+from redisrwlock import Rwlock, RwlockClient
+import redis
+
+client = RwlockClient()
+rwlock = client.lock('N1', Rwlock.READ, timeout=0)
+if rwlock.status == Rwlock.OK:
+    # Processings of resource named 'N1' with READ lock
+    # ...
+    client.unlock(rwlock)
+elif rwlock.status == Rwlock.FAIL:
+    # Retry locking or quit
+```
+
+### Waiting until lock success or deadlock
+
+With timout > 0, RwlockClient.lock waits until lock successfully or
+deadlock detected and caller is chosen as victim.
+
+``` python
+from redisrwlock import Rwlock, RwlockClient
+
+client = RwlockClient()
+rwlock = client.lock('N1', Rwlock.READ, timeout=Rwlock.FOREVER)
+if rwlock.status == Rwlock.OK:
+    # Processings of resource named 'N1' with READ lock
+    # ...
+    client.unlock(rwlock)
+elif rwlock.status == Rwlock.DEADLOCK:
+    # 1. unlock if holding any other locks
+    # 2. Retry locking or quit
+```
+
+### Removing stale locks
+
+When a client exits without unlock, redis keys for the client's locks
+remain in server and block other clients from successful locking.
+`redisrwlock.py` run in command line removes such garbage locks, waits
+in server.
+
+``` shell
+python3 redisrwlock.py
+```
+
+You can repeat this gc periodically by specifying -r or --repeat option.
 
 ## Tests
 
@@ -74,4 +126,5 @@ coverage html
 
 ## TODOs
 
+* TODO: packaging
 * TODO: high availability! redis sentinel or replication?
