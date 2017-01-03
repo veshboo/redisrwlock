@@ -9,3 +9,7 @@ dump.rdb
 .coverage
 .coveragerc
 htmlcov/
+
+# Packaging
+dist/
+redisrwlock.egg-info/

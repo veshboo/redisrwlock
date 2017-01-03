@@ -1,17 +1,23 @@
 from redisrwlock import Rwlock, RwlockClient
-from test_redisrwlock_connection import (
+from .test_redisrwlock_connection import (
     runRedisServer, terminateRedisServer, cleanUpRedisKeys)
 
 import unittest
 import logging
 import os
 import subprocess
+import sys
 import time
+
+logging.basicConfig(
+    stream=sys.stdout,
+    format='%(asctime)s (%(levelname).1s) %(message)s',
+    level=logging.DEBUG)
 
 
 # Gc test util, run gc with expected message output
 def runGcExpect(message):
-    gc = subprocess.Popen(['python3', 'redisrwlock.py'],
+    gc = subprocess.Popen(['python3', '-m', 'redisrwlock'],
                           stdout=subprocess.PIPE,
                           universal_newlines=True)
     found = False

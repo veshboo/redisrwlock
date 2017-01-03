@@ -5,7 +5,7 @@ Distributed read-write lock for python using redis as server
 ## Features
 
 * Read-write lock (can have multiple readers or one exclusive writer)
-* Stale locks collected (run as separate process, $ python3 redisrwlock.py)
+* Stale locks collected (run as separate process, $ python3 -m redisrwlock)
 * Deadlock detection
 
 Note: Deadlock detection and garbage/staleness collection is done in
@@ -66,11 +66,11 @@ elif rwlock.status == Rwlock.DEADLOCK:
 
 When a client exits without unlock, redis keys for the client's locks
 remain in server and block other clients from successful locking.
-`redisrwlock.py` run in command line removes such garbage locks, waits
+`redisrwlock` run in command line removes such garbage locks, waits
 in server.
 
 ``` shell
-python3 redisrwlock.py
+python3 -m redisrwlock
 ```
 
 You can repeat this gc periodically by specifying -r or --repeat option.

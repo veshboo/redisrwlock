@@ -2,15 +2,13 @@ from __future__ import print_function
 
 import redis
 
-import getopt
 import logging
 import logging.config
 import os
 import re
-import sys
 import time
 
-logging.config.fileConfig('logging.conf')
+logger = logging.getLogger(__name__)
 
 # (1) Primary data structure for resource, owner, lock
 #
@@ -290,13 +288,13 @@ class RwlockClient:
                 self.redis.delete('lock:' + lock)
                 self.redis.srem('rsrc:' + name, mode + ':' + owner)
                 stale_lock_count += 1
-                logging.info('gc: ' + 'lock:' + lock)
+                logger.info('gc: ' + 'lock:' + lock)
         # (3) Gc waitors and waitees? of stale owners
         stale_wait_count = 0
         for waitor in stale_waitors:
             self.redis.delete('wait:' + waitor)
             stale_wait_count += 1
-            logging.info('gc: ' + 'wait:' + waitor)
+            logger.info('gc: ' + 'wait:' + waitor)
             # Note: 'SREM' from other waitors having this waitor as member
             # This seems not required, because active waitors rebuild
             # their wait sets when they retry locking.
@@ -305,11 +303,11 @@ class RwlockClient:
         for owner in stale_owners:
             self.redis.delete('owner:' + owner)
             stale_owner_count += 1
-            logging.info('gc: ' + 'owner:' + owner)
+            logger.info('gc: ' + 'owner:' + owner)
         # Gc report
-        logging.info('gc: ' + str(stale_lock_count) + ' lock(s), ' +
-                     str(stale_wait_count) + ' wait(s), ' +
-                     str(stale_owner_count) + ' owner(s)')
+        logger.info('gc: ' + str(stale_lock_count) + ' lock(s), ' +
+                    str(stale_wait_count) + ' wait(s), ' +
+                    str(stale_owner_count) + ' owner(s)')
 
     def _deadlock(self, name, mode):
         self._waitset(name, mode)
@@ -340,13 +338,13 @@ class RwlockClient:
                     else:
                         self.redis.srem('wait:' + myself, grant_owner)
         if logging.getLogger().isEnabledFor(logging.DEBUG) and waitees:
-            logging.debug('waitset: %s waits {%s}', myself, ', '.join(waitees))
+            logger.debug('waitset: %s waits {%s}', myself, ', '.join(waitees))
 
     # Deadlock detect - cycle detect in wait-for graph (DAG)
     # DFS checking rediscovering of vertex in path
     def _cyclic(self, current, visited, path):
         if current in path:
-            logging.debug("_cyclic: [%s]", '->'.join(path))
+            logger.debug("_cyclic: [%s]", '->'.join(path))
             return True
         adj_set = self.redis.smembers('wait:' + current)
         for adj in adj_set:
@@ -376,9 +374,9 @@ class RwlockClient:
         assert victim is not None
         myself = self.get_owner()
         if victim != myself:
-            logging.debug('_victim: %s, not victim. retry ...', myself)
+            logger.debug('_victim: %s, not victim. retry ...', myself)
             return False
-        logging.debug('_victim: %s, the victim. DEADLOCK.', myself)
+        logger.debug('_victim: %s, the victim. DEADLOCK.', myself)
         return True
 
     # Oldest lock access time,
@@ -400,66 +398,18 @@ class RwlockClient:
     def _clear_all(self):
         count = 0
         for lock in self._redis_scan_iter('lock:*:[RW]:*'):
-            logging.debug('_clear_all: ' + lock.decode())
+            logger.debug('_clear_all: ' + lock.decode())
             count += self.redis.delete(lock.decode())
         for rsrc in self._redis_scan_iter('rsrc:*'):
-            logging.debug('_clear_all: ' + rsrc.decode())
+            logger.debug('_clear_all: ' + rsrc.decode())
             count += self.redis.delete(rsrc.decode())
         for owner in self._redis_scan_iter('owner:*'):
-            logging.debug('_clear_all: ' + owner.decode())
+            logger.debug('_clear_all: ' + owner.decode())
             count += self.redis.delete(owner.decode())
         for wait in self._redis_scan_iter('wait:*'):
-            logging.debug('_clear_all: ' + wait.decode())
+            logger.debug('_clear_all: ' + wait.decode())
             count += self.redis.delete(wait.decode())
         return True if count > 0 else False
 
-
-def usage():  # pragma: no cover
-    print("Usage: %s [option] ..." % sys.argv[0])
-    print("")
-    print("Options:")
-    print("  -h, --help      print this help message and exit")
-    print("  -V, --version   print version and exit")
-    print("  -r, --repeat    repeat gc in every 5 seconds (Control-C to quit)")
-    print("                  if not specified, just gc one time and exit")
-
-
-def version():  # pragma: no cover
-    print("%s 0.1.1" % sys.argv[0])
-
-
-def main():  # pragma: no cover
-    try:
-        opts, args = getopt.getopt(
-            sys.argv[1:],
-            "hVr",
-            ["help", "version", "repeat"])
-    except getopt.GetoptError as err:
-        print(err)
-        sys.exit(1)
-    opt_repeat = False
-    for opt, opt_arg in opts:
-        if opt in ("-h", "--help"):
-            usage()
-            sys.exit()
-        elif opt in ("-V", "--version"):
-            version()
-            sys.exit()
-        elif opt in ("-r", "--repeat"):
-            opt_repeat = True
-        else:
-            assert False, "unhandled option"  # pragma: no cover
-    # Gc periodically
-    client = RwlockClient()
-    while True:
-        logging.info('redisrwlock gc')
-        client.gc()
-        if not opt_repeat:
-            break
-        time.sleep(5)
-
-
-if __name__ == '__main__':
-    main()
 
 # TODO: high availability! redis sentinel or replication?
