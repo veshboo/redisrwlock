@@ -11,5 +11,6 @@ dump.rdb
 htmlcov/
 
 # Packaging
+build/
 dist/
 redisrwlock.egg-info/
