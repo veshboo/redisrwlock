@@ -1,5 +1,5 @@
 from redisrwlock import Rwlock, RwlockClient
-from .test_redisrwlock_connection import (
+from test_redisrwlock_connection import (
     runRedisServer, terminateRedisServer, cleanUpRedisKeys)
 
 import unittest
