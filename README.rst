@@ -25,7 +25,9 @@ Dependencies:
 Install
 =======
 
-...
+.. code-block:: console
+
+   pip install redisrwlock
 
 Usages
 ======
