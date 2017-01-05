@@ -1,17 +1,25 @@
+import re
 from setuptools import setup
 from codecs import open
-from os import path
 
-here = path.abspath(path.dirname(__file__))
+# Single-sourcing project version
+with open('redisrwlock/__init__.py', encoding='utf-8') as f:
+    version = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]',
+                        f.read(), re.MULTILINE).group(1)
+if not version:
+    raise RuntimeError('Cannot find version information')
 
-# Get the long description from the README file
-with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
+# Short and long descriptions
+description = 'Distributed reader-writer lock (rwlock) for python using redis'
+with open('README.rst', 'r', encoding='utf-8') as f:
     long_description = f.read()
+if not long_description:
+    raise RuntimeError('Cannot read README.rst')
 
 setup(
     name='redisrwlock',
-    version='0.1.1',
-    description='Distributed read-write lock (rwlock) for python using redis',
+    version=version,
+    description=description,
     long_description=long_description,
     keywords=['redis', 'rwlock'],
     url='https://github.com/veshboo/redisrwlock',

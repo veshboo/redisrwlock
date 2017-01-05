@@ -152,6 +152,5 @@ Then, run coverage with environment variable
 TODOs
 =====
 
-* TODO: packaging
 * TODO: command line option to specify redis-server
 * TODO: high availability! redis sentinel or replication?

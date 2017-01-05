@@ -1,4 +1,5 @@
 from .redisrwlock import RwlockClient
+from . import __version__
 import getopt
 import logging
 import logging.config
@@ -49,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 
 def usage():  # pragma: no cover
-    print("Usage: %s [option] ..." % sys.argv[0])
+    print("Usage: %s -m %s [option] ..." % (sys.executable, __package__))
     print("")
     print("Options:")
     print("  -h, --help      print this help message and exit")
@@ -59,7 +60,9 @@ def usage():  # pragma: no cover
 
 
 def version():  # pragma: no cover
-    print("%s 0.1.1" % sys.argv[0])
+    pkg_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    print("%s %s from %s (python %s)" % (
+        __package__, __version__, pkg_dir, sys.version[:3]))
 
 
 def main():  # pragma: no cover
