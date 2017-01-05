@@ -137,6 +137,8 @@ Need some preperation:
 
       [run]
       branch = True
+      # To avoid seldom "JSONDecodeError: extra data"
+      parallel = True
       [html]
       directory = htmlcov
 
@@ -146,8 +148,8 @@ Then, run coverage with environment variable
 .. code-block:: console
 
    coverage erase
-   COVERAGE_PROCESS_START=.coveragerc coverage run -a -m unittest discover test -q
-   coverage html
+   COVERAGE_PROCESS_START=.coveragerc coverage run -m unittest discover test -q
+   coverage combine && coverage html
 
 TODOs
 =====
