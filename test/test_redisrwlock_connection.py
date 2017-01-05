@@ -44,13 +44,17 @@ def cleanUpRedisKeys():
         print(_UNNEATY_AFTER_TEST)  # pragma: no cover
 
 
+def setUpModule():
+    global _server, _dumper
+    _server, _dumper = runRedisServer(port=7777)
+
+
+def tearDownModule():
+    global _server, _dumper
+    terminateRedisServer(_server, _dumper)
+
+
 class TestRedisRwlock_connection(unittest.TestCase):
-
-    def setUp(self):
-        self.server, self.dumper = runRedisServer(port=7777)
-
-    def tearDown(self):
-        terminateRedisServer(self.server, self.dumper)
 
     def test_RwlockClient_redis_connection(self):
         """
@@ -58,3 +62,11 @@ class TestRedisRwlock_connection(unittest.TestCase):
         """
         client = RwlockClient(redis=redis.StrictRedis(port=7777))
         self.assertIsNotNone(client)
+
+    def test_RwlockClient_node(self):
+        """
+        test RwlockClient with non-default node name
+        """
+        client = RwlockClient(redis=redis.StrictRedis(port=7777),
+                              node='client-node-a')
+        self.assertEqual(client.node, 'client-node-a')

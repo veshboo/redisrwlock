@@ -5,6 +5,7 @@ from test_redisrwlock_connection import (
 import unittest
 import logging
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -21,7 +22,7 @@ def runGcExpect(message):
                           stdout=subprocess.PIPE,
                           universal_newlines=True)
     found = False
-    for line in gc.stdout:
+    for line in gc.stdout:  # pragma: no cover
         if message in line:
             found = True
             break
@@ -57,6 +58,7 @@ class TestRedisRwlock(unittest.TestCase):
         self.assertEqual(rwlock.status, Rwlock.OK)
         self.assertEqual(rwlock.name, 'N1')
         self.assertEqual(rwlock.mode, Rwlock.READ)
+        self.assertEqual(rwlock.node, socket.gethostname())
         self.assertEqual(rwlock.pid, str(os.getpid()))
         client.unlock(rwlock)
 

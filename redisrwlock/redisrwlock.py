@@ -1,11 +1,11 @@
 from __future__ import print_function
-
-import redis
+from redis import StrictRedis
 
 import logging
 import logging.config
 import os
 import re
+import socket
 import time
 
 logger = logging.getLogger(__name__)
@@ -169,12 +169,16 @@ class Rwlock:
 
 class RwlockClient:
 
-    def __init__(self,
-                 redis=redis.StrictRedis(),
-                 node='localhost', pid=str(os.getpid())):
+    def __init__(self, redis=None, node=None, pid=None):
+        if redis is None:
+            redis = StrictRedis()
+        if node is None:
+            node = socket.gethostname()
+        if pid is None:
+            pid = os.getpid()
         self.redis = redis
         self.node = node
-        self.pid = pid
+        self.pid = str(pid)
         self.redis.client_setname('redisrwlock:' + self.node + '/' + self.pid)
 
     def get_owner(self):
