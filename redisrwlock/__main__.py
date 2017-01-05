@@ -1,5 +1,6 @@
 from .redisrwlock import RwlockClient
 from . import __version__
+from redis import StrictRedis
 import getopt
 import logging
 import logging.config
@@ -50,13 +51,19 @@ logger = logging.getLogger(__name__)
 
 
 def usage():  # pragma: no cover
-    print("Usage: %s -m %s [option] ..." % (sys.executable, __package__))
+    print("Usage: %s -m %s [option] ..." %
+          (os.path.basename(sys.executable), __package__))
     print("")
-    print("Options:")
-    print("  -h, --help      print this help message and exit")
-    print("  -V, --version   print version and exit")
-    print("  -r, --repeat    repeat gc in every 5 seconds (Control-C to quit)")
-    print("                  if not specified, just gc one time and exit")
+    print("""\
+Options:
+  -h, --help      print this help message and exit
+  -V, --version   print version and exit
+  -r, --repeat    repeat gc periodically (Control-C to quit)
+                  if not specified, just gc one time and exit
+  -i, --interval  interval of the periodic gc in seconds (default 5)
+  -s, --server    redis-server host to connect (default localhost)
+  -p, --port      redis-server port to connect (default 6379)
+""")
 
 
 def version():  # pragma: no cover
@@ -69,12 +76,16 @@ def main():  # pragma: no cover
     try:
         opts, args = getopt.getopt(
             sys.argv[1:],
-            "hVr",
-            ["help", "version", "repeat"])
+            "hVri:s:p:",
+            ["help", "version", "repeat", "interval=", "server=", "port="])
     except getopt.GetoptError as err:
-        print(err)
-        sys.exit(1)
+        print("ERROR:", err)
+        sys.exit(os.EX_USAGE)
+    # Defaults
     opt_repeat = False
+    opt_interval = 5
+    opt_server = "localhost"
+    opt_port = 6379
     for opt, opt_arg in opts:
         if opt in ("-h", "--help"):
             usage()
@@ -84,16 +95,32 @@ def main():  # pragma: no cover
             sys.exit()
         elif opt in ("-r", "--repeat"):
             opt_repeat = True
-        else:
-            assert False, "unhandled option"  # pragma: no cover
+        elif opt in ("-i", "--interval"):
+            try:
+                opt_interval = int(opt_arg)
+            except:
+                print("ERROR: specify interval as number of seconds")
+                sys.exit(os.EX_USAGE)
+        elif opt in ("-s", "--server"):
+            opt_server = opt_arg
+        elif opt in ("-p", "--port"):
+            try:
+                opt_port = int(opt_arg)
+            except:
+                print("ERROR: specify port as number")
+                sys.exit(os.EX_USAGE)
+            pass
+        else:  # pragma: no cover
+            print("ERROR: unhandled option")
+            sys.exit(os.EX_USAGE)
     # Gc periodically
-    client = RwlockClient()
+    client = RwlockClient(StrictRedis(host=opt_server, port=opt_port))
     while True:
         logger.info('redisrwlock gc')
         client.gc()
         if not opt_repeat:
             break
-        time.sleep(5)
+        time.sleep(opt_interval)
 
 
 if __name__ == '__main__':

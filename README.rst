@@ -81,8 +81,19 @@ in server.
 .. code-block:: console
 
    python3 -m redisrwlock
+   python3 -m redisrwlock --repeat --interval 10
+   python3 -m redisrwlock --server localhost --port 7777
 
-You can repeat this gc periodically by specifying -r or --repeat option.
+There are several options for command line execution:
+
+  -r, --repeat
+    repeat gc periodically, interval is given by -i or --interval
+  -i, --interval
+    interval of the periodic gc in seconds (default 5)
+  -s, --server
+    redis-server host to connect (default localhost)
+  -p, --port
+    redis-server port to connect (default 6379)
 
 Tests
 =====
@@ -154,5 +165,4 @@ Then, run coverage with environment variable
 TODOs
 =====
 
-* TODO: command line option to specify redis-server
 * TODO: high availability! redis sentinel or replication?
