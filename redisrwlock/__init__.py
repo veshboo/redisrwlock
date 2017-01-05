@@ -1,7 +1,7 @@
 import logging
 from .redisrwlock import _cmp_time, Rwlock, RwlockClient
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 
 # Set default logging handler to avoid "No handler found" warnings.
 try:  # Python 2.7+
