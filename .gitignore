@@ -2,8 +2,11 @@
 __pycache__/
 *.py[cod]
 
-# Rdis snapshot
+# Redis snapshot
 dump.rdb
+
+# Local logging config
+logging.conf
 
 # Coverage.py
 .coverage
