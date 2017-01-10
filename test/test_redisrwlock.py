@@ -47,7 +47,7 @@ class TestRedisRwlock(unittest.TestCase):
         cleanUpRedisKeys()
 
     def tearDown(self):
-        cleanUpRedisKeys()
+        self.assertFalse(cleanUpRedisKeys())
 
     def test_lock(self):
         """
@@ -133,7 +133,7 @@ class TestRedisRwlock_gc(unittest.TestCase):
         cleanUpRedisKeys()
 
     def tearDown(self):
-        cleanUpRedisKeys()
+        self.assertFalse(cleanUpRedisKeys())
 
     def test_gc(self):
         """
@@ -182,8 +182,7 @@ class TestRedisRwlock_deadlock(unittest.TestCase):
         cleanUpRedisKeys()
 
     def tearDown(self):
-        cleanUpRedisKeys()
-        pass
+        self.assertFalse(cleanUpRedisKeys())
 
     def test_deadlock(self):
         """test deadlock detection"""
@@ -309,8 +308,7 @@ class TestRedisRwlock_clear_all(unittest.TestCase):
         cleanUpRedisKeys()
 
     def tearDown(self):
-        cleanUpRedisKeys()
-        pass
+        self.assertFalse(cleanUpRedisKeys())
 
     def test_clear_all(self):
         """test _clean_all"""

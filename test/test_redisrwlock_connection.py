@@ -36,12 +36,8 @@ def terminateRedisServer(server, dumper):
     dumper.terminate()
 
 
-_UNNEATY_AFTER_TEST = '!!! SOME REDISRWLOCK KEYS REMAIN AFTER TEST !!!'
-
-
 def cleanUpRedisKeys():
-    if RwlockClient()._clear_all():
-        print(_UNNEATY_AFTER_TEST)  # pragma: no cover
+    return RwlockClient()._clear_all()
 
 
 def setUpModule():
